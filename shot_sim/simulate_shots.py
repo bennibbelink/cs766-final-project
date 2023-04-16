@@ -2,12 +2,25 @@ import pymunk
 import pymunk.pygame_util
 from typing import List
 import pygame
-import time
+import math
 import queue
  
-  
-SHOT_ID_COUNTER = 0
 
+SHOT_ID_COUNTER = 0
+SOLIDS_TEAM_ID= 0
+STRIPES_TEAM_ID = 1
+CUE_BALL_ID = 2
+POCKET_ID = 3
+WALL_ID = 4
+EIGHT_BALL_ID = 5
+
+best_running_difficulty = -1
+
+class MyPoly(pymunk.Poly):
+    def __init__(self):
+        super.__init__()
+        self.id = None
+    
 class Ball:
     def __init__(self, team, label, loc):
         self.team = team
@@ -44,16 +57,23 @@ class Node:
         self.running_difficulty = diff
 
 # Method to create a ball at a location.
-# 
-# TODO: Mofidy to accept ball object instead of a point.
-# TODO: No longer needs to return shape object
-def create_ball_at_location(point, space):
+def create_ball_at_location(point, space, id):
     body = pymunk.Body(10, 100)
     body.position = point[0], point[1]
     shape = pymunk.Circle(body, 15)
-    # shape.friction = 0
-    # shape.ball_object = Ball()
-    shape.collision_type = 2
+    shape.id = id
+    print(shape.id)
+    if id == 0:
+        shape.collision_type = CUE_BALL_ID
+        shape.color = (255, 255, 255, 255)
+    elif id <= 7:
+        shape.collision_type = SOLIDS_TEAM_ID
+        shape.color = (255, 0, 255, 255)
+    elif id == 8:
+        shape.collision_type = EIGHT_BALL_ID
+    else:
+        shape.collision_type = STRIPES_TEAM_ID
+        shape.color = (255, 255, 0, 255)
     shape.elasticity = 1
     shape.body = body
     space.add(body, shape)
@@ -81,8 +101,18 @@ def create_wall(points, space):
 
 
 # Create triggers that balls collide with that will delete them
-def create_pockets(walls, space):
-    pass
+def create_pocket(top_left_corner: tuple, length, space):
+    shape = pymunk.Poly(space.static_body, [top_left_corner,
+        (top_left_corner[0], top_left_corner[1] + length),
+        (top_left_corner[0] + length, top_left_corner[1] + length), 
+        (top_left_corner[0] + length, top_left_corner[1])])
+    
+    # DEBUG
+    shape.color = (255, 0, 0, 255)
+
+    shape.collision_type = POCKET_ID
+    space.add(shape)
+    
 
 
 
@@ -90,11 +120,14 @@ def create_pockets(walls, space):
 #   
 #
 # CREATE TABLE INITIAL STATE
-# PARAMETERS: Ball Locations, array of size 16 (required) of pymunk.Shape
+# PARAMETERS: Ball Locations, array of size 16 (required) of Balls
 #             Pygame space obejct
 # RETURNS:    Nothing
 # ASSUMES:    
-# def create_initial_state()
+def create_initial_state(balls: List[Ball], space):
+    for ball in balls:
+        # create_ball_at_location(ball.loc)
+        pass
 
 
 # EVALUATE ALL POSSIBLE SHOTS (FOR A GIVEN TABLE STATE)
@@ -111,7 +144,22 @@ def create_pockets(walls, space):
 #       If shot made:
 #           Add to array of successful shots
 # Return array of successful shots to search tree algorithm          
-def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space):
+def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space, shooting_team_id):
+    angles = list(range(0, 360, 1))
+    strengths = list(range(100, 1000, 1))
+    valid_shot_nodes = []
+
+    for angle in angles:
+        for strength in strengths:
+            shot = evaluate_single_shot(space, strength, angle, current_shot_node.shot.table, shooting_team_id)
+            if shot is not None:
+                new_shot_node = Node(shot)
+                new_shot_node.parent = current_shot_node
+                new_shot_node.set_running_difficulty(shot.difficulty, new_shot_node.parent.running_difficulty)
+                if best_running_difficulty == -1 or new_shot_node.running_difficulty < best_running_difficulty:
+                    valid_shot_nodes.append(new_shot_node)
+    return valid_shot_nodes
+
     if SHOT_ID_COUNTER == 1:
         # Create some shot
         evaluated_shot_table = Table(current_shot_node.shot.table.balls[:])
@@ -163,30 +211,92 @@ def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space):
 # If ball made, set shot flag to to true
 # ---- END SIMULATION ----
 # If shot made flag, create Shot object, return shot object
+def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, shooting_team_id):
+    balls_made = []
+    legal = True
+    first_contact_made = False
+
+    def ball_in_pocket_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        balls_made.append(arbiter.shapes[0].id)
+        print("Ball made: " + str(arbiter.shapes[0].id))
+        space.remove(arbiter.shapes[0], arbiter.shapes[0].body)
+        return False
+
+    def scratch_handler():
+        legaility = False
+        return False
+
+    solids_pocket = space.add_collision_handler(SOLIDS_TEAM_ID, POCKET_ID)
+    solids_pocket.begin = ball_in_pocket_handler
+    stripes_pocket = space.add_collision_handler(STRIPES_TEAM_ID, POCKET_ID)
+    stripes_pocket.begin = ball_in_pocket_handler
+    scratch = space.add_collision_handler(CUE_BALL_ID, POCKET_ID)
+    scratch.begin = scratch_handler
+    cue_solid = space.add_collision_handler(CUE_BALL_ID, SOLIDS_TEAM_ID)
+    cue_stripes = space.add_collision_handler(CUE_BALL_ID, STRIPES_TEAM_ID)
+
+    x_force = strength * math.cos(angle * math.pi / 180)
+    y_force = strength * math.sin(angle * math.pi / 180)
+
+    cue = create_ball_at_location(table.balls[0].loc, space, 0)
+    for index, ball in enumerate(table.balls):
+        if index == 0:
+            continue
+        if ball is not None:
+            create_ball_at_location(ball.loc, space, index)
+    
+
+    force_applied = False
+    paused = True
+    running = True
+    pygame.init()
+    screen = pygame.display.set_mode((1300, 800))
+    clock = pygame.time.Clock()
+    draw_options = pymunk.pygame_util.DrawOptions(screen)
+    while running:
+        # Event loop
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                paused = not paused
+
+        if not paused:
+            if not force_applied:
+                cue.body.apply_impulse_at_local_point((4000, -3350), (0, 0)) # This is a single force being applied
+                force_applied = True
+
+            screen.fill(pygame.Color("black"))
+            space.debug_draw(draw_options)
+            pygame.display.flip()
+            fps = 60
+            dt = 1.0 / fps
+            space.step(dt) # These can be modified to sped up the time scale
+            clock.tick(fps)
+    
+    shot = None
+    if legal:
+        new_table = Table(table.balls[:])
+        for ball in balls_made:
+            new_table.balls[ball] = None
+        shot = Shot(new_table, angle, strength, 50)
+    
+    for joint in space.constraints:
+        space.remove(joint)
+
+    for shape in space.shapes:
+        if shape.body.body_type == pymunk.Body.DYNAMIC:
+            shot.table.balls[shape.id] = shape.body.position
+            space.remove(shape)
+    return shot
+
+    
 
 # GET SHOT DIFFICULTY
 # PARAMETERS: 
 # ASSUMES:
 # REQUIRES:
 # ----------- SHOT EVALUTION -------------------------------------------
-
-
-# -------------- SEARCH TREE -------------------------------------------
-# Tree of Shots
-# Obtain initial positions of all balls
-# Create Table node
-#
-
-# -------------- SEARCH TREE ------------------------------------------- 
-# def search_tree():
-
-
-# step 1
-# step 2
-# step 3 - evaluate_all_possible_shots(table, space)
-# step 4 
-
-
 
 
 
@@ -202,26 +312,43 @@ def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space):
 # Balls array is always assumed to be of size 16
 
 def main():
-    pygame.init()
-    screen = pygame.display.set_mode((1300, 800))
-    clock = pygame.time.Clock()
-    running = True
-
     space = pymunk.Space()
     space.gravity = 0, 0
-    draw_options = pymunk.pygame_util.DrawOptions(screen)
+    
+    
+    # WALLS ARE ASSUMED TO BE CREATED IN A CERTAIN ORDER, FOR POCKET GENERATION
+    walls: List[pymunk.Shape] = []
+    walls.append(create_wall([(100, 50), (600, 50), (602, 40), (90, 40)], space))
+    walls.append(create_wall([(650, 50), (1150, 50), (1160, 40), (648, 40)], space))
+    walls.append(create_wall([(60, 90), (60, 590), (50, 600), (50, 80)], space))
+    walls.append(create_wall([(1190, 90), (1190, 590), (1200, 600), (1200, 80)], space))
+    walls.append(create_wall([(100, 630), (600, 630), (602, 640), (90, 640)], space))
+    walls.append(create_wall([(650, 630), (1150, 630), (1160, 640), (648, 640)], space))
+
+    # Triggers for detecting balls entering pockets
+    pockets: List[pymunk.Shape] =[]
+    pockets.append(create_pocket((40, 40), 15, space))
+    pockets.append(create_pocket((1190, 40), 15, space))
+    pockets.append(create_pocket((615, 30), 15, space))
+    pockets.append(create_pocket((40, 640), 15, space))
+    pockets.append(create_pocket((615, 640), 15, space))
+    pockets.append(create_pocket((1190, 640), 15, space))
+
 
     # 2 balls, 1 cue ball on table (assume 2 balls are for the same team)
     cue_ball = Ball(0, 0, (500, 500))
     ball1 = Ball(1, 3, (1000, 100))
     ball2 = Ball(1, 7, (850, 400))
+    ball3 = Ball(1, 11, (200, 500))
 
     all_balls = [None] * 16
     all_balls[0] = cue_ball
     all_balls[3] = ball1
     all_balls[7] = ball2
+    all_balls[11] = ball3
 
     table = Table(all_balls)
+    shooting_team = SOLIDS_TEAM_ID
     initial_shot = Shot(table, 0, 0, 0)
 
     initial_shot_node = Node(initial_shot)
@@ -239,14 +366,7 @@ def main():
         shot_node_to_eval = shot_node_queue.get()
         
         # Call eval shots
-        optional_shot_nodes = evaluate_all_possible_shots(shot_node_to_eval, space)
-        # if optional_shot_nodes is None:
-        #     # This means shot_node_to_eval is a leaf node
-        #     # Check running difficulty, set best if shot if necessary
-        #     if best_shot_node is None or best_shot_node.running_difficulty > shot_node_to_eval.running_difficulty:
-        #         best_shot_node = shot_node_to_eval
-        #         best_shot_difficulty = best_shot_node.running_difficulty
-        # else:
+        optional_shot_nodes = evaluate_all_possible_shots(shot_node_to_eval, space, shooting_team)
         for node in optional_shot_nodes:
             if not node.shot.table.game_won:
                 print("Adding to queue")
@@ -258,63 +378,6 @@ def main():
 
     print(best_shot_node.running_difficulty)
     print("loop finished")
-    
-    # WALLS ARE ASSUMED TO BE CREATED IN A CERTAIN ORDER, FOR POCKET GENERATION
-    walls: List[pymunk.Shape] = []
-    walls.append(create_wall([(100, 50), (600, 50), (602, 40), (90, 40)], space))
-    walls.append(create_wall([(650, 50), (1150, 50), (1160, 40), (648, 40)], space))
-    walls.append(create_wall([(60, 90), (60, 590), (50, 600), (50, 80)], space))
-    walls.append(create_wall([(1190, 90), (1190, 590), (1200, 600), (1200, 80)], space))
-    walls.append(create_wall([(100, 630), (600, 630), (602, 640), (90, 640)], space))
-    walls.append(create_wall([(650, 630), (1150, 630), (1160, 640), (648, 640)], space))
-
-    # Triggers for detecting balls entering pockets
-    # pockets: List[pymunk.Shape] =[]
-    # pockets.append()
-
-    # TODO: Change to array of Ball objects
-    # List contains all pool balls, index 0 is cue ball, other indices correspond to ball numbers
-    balls: List[pymunk.Shape] = []
-    balls.append(create_ball_at_location((500, 500), space))
-    balls.append(create_ball_at_location((200, 500), space))
-    balls.append(create_ball_at_location((850, 400), space))
-    balls.append(create_ball_at_location((1000, 100), space))
-    balls[0].color = (255, 255, 255, 255)
-
-
-
-    force_applied = False
-    paused = True
-
-    # MODIFY GAME LOOP TO INTERFACE WITH METHODS
-    while running:
-
-        # Event loop
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                paused = not paused
-
-        if not paused:
-            if not force_applied:
-                balls[0].body.apply_impulse_at_local_point((4000, -3350), (0, 0)) # This is a single force being applied
-                force_applied = True
-
-            for ball in balls:
-                # TODO: Switch to actual
-                if ball.body.position[0] > 1200:
-                    print("REMOVING")
-                    space.remove(ball, ball.body)
-                    balls.remove(ball)
-
-            screen.fill(pygame.Color("black"))
-            space.debug_draw(draw_options)
-            pygame.display.flip()
-            fps = 60
-            dt = 1.0 / fps
-            space.step(dt) # These can be modified to sped up the time scale
-            clock.tick(fps)
 
 
 if __name__ == "__main__":
