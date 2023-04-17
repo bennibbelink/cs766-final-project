@@ -14,7 +14,9 @@ POCKET_ID = 3
 WALL_ID = 4
 EIGHT_BALL_ID = 5
 
+
 best_running_difficulty = -1
+DRAW = False
 
 class MyPoly(pymunk.Poly):
     def __init__(self):
@@ -43,10 +45,6 @@ class Shot: # only created after ball has been made
         self.shot_id = SHOT_ID_COUNTER
         SHOT_ID_COUNTER += 1
 
-class ShotsTaken:
-    def __init__(self, previous_shots: List[Shot]):
-        self.previous_shots = previous_shots
-
 class Node:
     def __init__(self, shot: Shot):
         self.parent = None
@@ -56,13 +54,15 @@ class Node:
     def set_running_difficulty(self, diff):
         self.running_difficulty = diff
 
+
+def simulate_shot(shot: Shot):
+    
 # Method to create a ball at a location.
 def create_ball_at_location(point, space, id):
     body = pymunk.Body(10, 100)
     body.position = point[0], point[1]
     shape = pymunk.Circle(body, 15)
     shape.id = id
-    print(shape.id)
     if id == 0:
         shape.collision_type = CUE_BALL_ID
         shape.color = (255, 255, 255, 255)
@@ -117,18 +117,6 @@ def create_pocket(top_left_corner: tuple, length, space):
 
 
 # ----------- SHOT EVALUTION -------------------------------------------
-#   
-#
-# CREATE TABLE INITIAL STATE
-# PARAMETERS: Ball Locations, array of size 16 (required) of Balls
-#             Pygame space obejct
-# RETURNS:    Nothing
-# ASSUMES:    
-def create_initial_state(balls: List[Ball], space):
-    for ball in balls:
-        # create_ball_at_location(ball.loc)
-        pass
-
 
 # EVALUATE ALL POSSIBLE SHOTS (FOR A GIVEN TABLE STATE)
 # PARAMETERS: Table object
@@ -145,62 +133,21 @@ def create_initial_state(balls: List[Ball], space):
 #           Add to array of successful shots
 # Return array of successful shots to search tree algorithm          
 def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space, shooting_team_id):
-    angles = list(range(0, 360, 1))
-    strengths = list(range(100, 1000, 1))
+    angles = list(range(0, 360, 2))
+    strengths = list(range(1000, 10000, 1000))
     valid_shot_nodes = []
 
     for angle in angles:
+        print("Testing angle: " + str(angle))
         for strength in strengths:
             shot = evaluate_single_shot(space, strength, angle, current_shot_node.shot.table, shooting_team_id)
             if shot is not None:
                 new_shot_node = Node(shot)
                 new_shot_node.parent = current_shot_node
-                new_shot_node.set_running_difficulty(shot.difficulty, new_shot_node.parent.running_difficulty)
+                new_shot_node.set_running_difficulty(shot.difficulty + new_shot_node.parent.running_difficulty)
                 if best_running_difficulty == -1 or new_shot_node.running_difficulty < best_running_difficulty:
                     valid_shot_nodes.append(new_shot_node)
     return valid_shot_nodes
-
-    if SHOT_ID_COUNTER == 1:
-        # Create some shot
-        evaluated_shot_table = Table(current_shot_node.shot.table.balls[:])
-        evaluated_shot_table.balls[3] = None
-
-        shot = Shot(evaluated_shot_table, 70, 10, 35)
-        new_shot_node = Node(shot)
-        new_shot_node.parent = current_shot_node
-        new_shot_node.set_running_difficulty(shot.difficulty + new_shot_node.parent.running_difficulty)
-
-        evaluated_shot_table2 = Table(current_shot_node.shot.table.balls[:])
-        evaluated_shot_table2.balls[7] = None
-
-        shot2 = Shot(evaluated_shot_table2, 70, 10, 100)
-        new_shot_node2 = Node(shot2)
-        new_shot_node2.parent = current_shot_node
-        new_shot_node2.set_running_difficulty(shot2.difficulty + new_shot_node2.parent.running_difficulty)
-        return [new_shot_node, new_shot_node2]
-    elif SHOT_ID_COUNTER == 3:
-        # Create some shot
-        evaluated_shot_table = Table(current_shot_node.shot.table.balls[:])
-        evaluated_shot_table.balls[3] = None
-        evaluated_shot_table.balls[7] = None
-        evaluated_shot_table.game_won = True
-
-        shot = Shot(evaluated_shot_table, 70, 10, 600)
-        new_shot_node = Node(shot)
-        new_shot_node.parent = current_shot_node
-        new_shot_node.set_running_difficulty(shot.difficulty + new_shot_node.parent.running_difficulty)
-        return [new_shot_node]
-    elif SHOT_ID_COUNTER == 4:
-        evaluated_shot_table = Table(current_shot_node.shot.table.balls[:])
-        evaluated_shot_table.balls[3] = None
-        evaluated_shot_table.balls[7] = None
-        evaluated_shot_table.game_won = True
-
-        shot = Shot(evaluated_shot_table, 70, 10, 70)
-        new_shot_node = Node(shot)
-        new_shot_node.parent = current_shot_node
-        new_shot_node.set_running_difficulty(shot.difficulty + new_shot_node.parent.running_difficulty)
-        return [new_shot_node]
     
 # EVALUATE SINGLE SHOT
 # PARAMETERS: get_shot_diffulty (bool), space, force, angle, array of balls
@@ -222,7 +169,7 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         space.remove(arbiter.shapes[0], arbiter.shapes[0].body)
         return False
 
-    def scratch_handler():
+    def scratch_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         legaility = False
         return False
 
@@ -253,26 +200,35 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     screen = pygame.display.set_mode((1300, 800))
     clock = pygame.time.Clock()
     draw_options = pymunk.pygame_util.DrawOptions(screen)
-    while running:
-        # Event loop
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                paused = not paused
+    iter = 0
+    if DRAW:
+        while running:
+            # Event loop
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                    paused = not paused
 
-        if not paused:
-            if not force_applied:
-                cue.body.apply_impulse_at_local_point((4000, -3350), (0, 0)) # This is a single force being applied
-                force_applied = True
+            if not paused:
+                if not force_applied:
+                    x_force = 10000
+                    y_force = -10000
+                    cue.body.apply_impulse_at_local_point((x_force, y_force), (0, 0)) # This is a single force being applied
+                    force_applied = True
 
-            screen.fill(pygame.Color("black"))
-            space.debug_draw(draw_options)
-            pygame.display.flip()
-            fps = 60
-            dt = 1.0 / fps
-            space.step(dt) # These can be modified to sped up the time scale
-            clock.tick(fps)
+                screen.fill(pygame.Color("black"))
+                space.debug_draw(draw_options)
+                pygame.display.flip()
+                fps = 60
+                dt = 1.0 / fps
+                for _ in range(100):
+                    space.step(dt) # These can be modified to sped up the time scale
+                clock.tick(fps)
+    else:
+        cue.body.apply_impulse_at_local_point((x_force, y_force), (0, 0)) # This is a single force being applied
+        for _ in range(1000):
+            space.step(1/60) # These can be modified to sped up the time scale
     
     shot = None
     if legal:
@@ -326,7 +282,7 @@ def main():
     walls.append(create_wall([(650, 630), (1150, 630), (1160, 640), (648, 640)], space))
 
     # Triggers for detecting balls entering pockets
-    pockets: List[pymunk.Shape] =[]
+    pockets: List[pymunk.Shape] = []
     pockets.append(create_pocket((40, 40), 15, space))
     pockets.append(create_pocket((1190, 40), 15, space))
     pockets.append(create_pocket((615, 30), 15, space))
@@ -358,7 +314,7 @@ def main():
     shot_node_queue.put(initial_shot_node)
 
     # Evalute all remaining
-    best_shot_difficulty = 0
+    global best_running_difficulty
     best_shot_node = None
 
     while shot_node_queue.empty() is False:
@@ -369,12 +325,11 @@ def main():
         optional_shot_nodes = evaluate_all_possible_shots(shot_node_to_eval, space, shooting_team)
         for node in optional_shot_nodes:
             if not node.shot.table.game_won:
-                print("Adding to queue")
                 shot_node_queue.put(node)
             else:
                 if best_shot_node is None or best_shot_node.running_difficulty > node.running_difficulty:
                     best_shot_node = node
-                    best_shot_difficulty = node.running_difficulty
+                    best_running_difficulty = node.running_difficulty
 
     print(best_shot_node.running_difficulty)
     print("loop finished")
