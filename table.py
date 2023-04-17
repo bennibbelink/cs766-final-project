@@ -49,7 +49,10 @@ def find_clusters(circles, num_clusters, dist_threshold, img, bounds=[]):
             cv2.circle(out_img, (i[0], i[1]), i[2], (255, 0, 255), 2)  # draw the outer circle
             cv2.circle(out_img, (i[0], i[1]), 2, (0, 255, 0), 3)  # draw the center of the circle
         cluster_centers.append((statistics.mean(xes), statistics.mean(yes), statistics.mean(radii)))
-    cv2.imwrite("clusters.png", out_img)
+    if len(bounds) == 0:
+        cv2.imwrite("table_clusters.png", out_img)
+    else:
+        cv2.imwrite("ball_clusters.png", out_img)
     return cluster_centers
 
 
@@ -60,6 +63,7 @@ def get_corners(masked_img):
     h_circles = cv2.HoughCircles(gray_blur, cv2.HOUGH_GRADIENT, param1=120, param2=12, dp=1, minRadius=25, maxRadius=30,
                                  minDist=1)
     h_circles = np.uint16(np.around(h_circles))
+    msk_img = cv2.cvtColor(msk_img, cv2.COLOR_BGR2RGB)
     for i in h_circles[0, :]:
         cv2.circle(msk_img, (i[0], i[1]), i[2], (0, 255, 0), 2)  # draw the outer circle
         cv2.circle(msk_img, (i[0], i[1]), 2, (0, 0, 255), 3)  # draw the center of the circle
@@ -67,6 +71,7 @@ def get_corners(masked_img):
     # construct clusters of the hough circles
     cluster_centers = find_clusters(h_circles, 4, 15, msk_img)
     corners_img = masked_img.copy()
+    corners_img = cv2.cvtColor(corners_img, cv2.COLOR_BGR2RGB)
     for c in cluster_centers:
         cv2.circle(corners_img, (c[0], c[1]), 4, (255, 0, 255), 5)
     cv2.imwrite('table_corners.png', corners_img)
@@ -83,13 +88,13 @@ def organize(pts):
 
     # find top
     pts.sort(key=by_x)
-    top = pts[:2]
-    top.sort(key=by_y)
-    TL = top[0]
-    TR = top[1]
+    left = pts[:2]
+    left.sort(key=by_y)
+    TL = left[0]
+    BL = left[1]
     # find bottom
-    bottom = pts[2:]
-    bottom.sort(key=by_y)
-    BL = bottom[0]
-    BR = bottom[1]
+    right = pts[2:]
+    right.sort(key=by_y)
+    TR = right[0]
+    BR = right[1]
     return TL, TR, BL, BR
