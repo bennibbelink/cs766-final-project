@@ -16,7 +16,6 @@ EIGHT_BALL_ID = 5
 
 
 best_running_difficulty = -1
-DRAW = False
 
 class MyPoly(pymunk.Poly):
     def __init__(self):
@@ -55,8 +54,37 @@ class Node:
         self.running_difficulty = diff
 
 
-def simulate_shot(shot: Shot):
-    
+def simulate_shot(shot: Shot, space: pymunk.Space):
+    force_applied = False
+    paused = True
+    running = True
+    pygame.init()
+    screen = pygame.display.set_mode((1300, 800))
+    clock = pygame.time.Clock()
+    draw_options = pymunk.pygame_util.DrawOptions(screen)
+    while running:
+        # Event loop
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                paused = not paused
+
+        if not paused:
+            if not force_applied:
+                x_force = 10000
+                y_force = -10000
+                shot.table.balls[0].body.apply_impulse_at_local_point((x_force, y_force), (0, 0)) # This is a single force being applied
+                force_applied = True
+
+            screen.fill(pygame.Color("black"))
+            space.debug_draw(draw_options)
+            pygame.display.flip()
+            fps = 60
+            dt = 1.0 / fps
+            space.step(dt) # These can be modified to sped up the time scale
+            clock.tick(fps)
+
 # Method to create a ball at a location.
 def create_ball_at_location(point, space, id):
     body = pymunk.Body(10, 100)
@@ -170,19 +198,30 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         return False
 
     def scratch_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
-        legaility = False
+        nonlocal legal
+        legal = False
         return False
-
+    
+    def wrong_ball_scratch_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        if not first_contact_made:
+            nonlocal legal
+            legal = False
+        return False
+        
     solids_pocket = space.add_collision_handler(SOLIDS_TEAM_ID, POCKET_ID)
     solids_pocket.begin = ball_in_pocket_handler
     stripes_pocket = space.add_collision_handler(STRIPES_TEAM_ID, POCKET_ID)
     stripes_pocket.begin = ball_in_pocket_handler
     scratch = space.add_collision_handler(CUE_BALL_ID, POCKET_ID)
     scratch.begin = scratch_handler
-    cue_solid = space.add_collision_handler(CUE_BALL_ID, SOLIDS_TEAM_ID)
+    cue_solids = space.add_collision_handler(CUE_BALL_ID, SOLIDS_TEAM_ID)
     cue_stripes = space.add_collision_handler(CUE_BALL_ID, STRIPES_TEAM_ID)
+    if shooting_team_id == SOLIDS_TEAM_ID:
+        cue_stripes.begin = wrong_ball_scratch_handler
+    else:
+        cue_solids.begin = wrong_ball_scratch_handler
 
-    x_force = strength * math.cos(angle * math.pi / 180)
+    x_force = strength * math.cos(angle * math.pi / 180)    
     y_force = strength * math.sin(angle * math.pi / 180)
 
     cue = create_ball_at_location(table.balls[0].loc, space, 0)
@@ -191,58 +230,25 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
             continue
         if ball is not None:
             create_ball_at_location(ball.loc, space, index)
-    
 
-    force_applied = False
-    paused = True
-    running = True
-    pygame.init()
-    screen = pygame.display.set_mode((1300, 800))
-    clock = pygame.time.Clock()
-    draw_options = pymunk.pygame_util.DrawOptions(screen)
-    iter = 0
-    if DRAW:
-        while running:
-            # Event loop
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                    paused = not paused
-
-            if not paused:
-                if not force_applied:
-                    x_force = 10000
-                    y_force = -10000
-                    cue.body.apply_impulse_at_local_point((x_force, y_force), (0, 0)) # This is a single force being applied
-                    force_applied = True
-
-                screen.fill(pygame.Color("black"))
-                space.debug_draw(draw_options)
-                pygame.display.flip()
-                fps = 60
-                dt = 1.0 / fps
-                for _ in range(100):
-                    space.step(dt) # These can be modified to sped up the time scale
-                clock.tick(fps)
-    else:
-        cue.body.apply_impulse_at_local_point((x_force, y_force), (0, 0)) # This is a single force being applied
-        for _ in range(1000):
-            space.step(1/60) # These can be modified to sped up the time scale
+    cue.body.apply_impulse_at_local_point((x_force, y_force), (0, 0)) # This is a single force being applied
+    for _ in range(1000):
+        space.step(1/60) # These can be modified to sped up the time scale
     
     shot = None
     if legal:
         new_table = Table(table.balls[:])
         for ball in balls_made:
             new_table.balls[ball] = None
-        shot = Shot(new_table, angle, strength, 50)
+        shot = Shot(new_table, angle, strength, strength)
     
     for joint in space.constraints:
         space.remove(joint)
 
     for shape in space.shapes:
         if shape.body.body_type == pymunk.Body.DYNAMIC:
-            shot.table.balls[shape.id] = shape.body.position
+            if legal:
+                shot.table.balls[shape.id].loc = shape.body.position
             space.remove(shape)
     return shot
 
@@ -252,6 +258,8 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
 # PARAMETERS: 
 # ASSUMES:
 # REQUIRES:
+def get_shot_difficulty(strength, collisions_involved):
+    return (strength / 1000) * collisions_involved
 # ----------- SHOT EVALUTION -------------------------------------------
 
 
@@ -332,7 +340,9 @@ def main():
                     best_running_difficulty = node.running_difficulty
 
     print(best_shot_node.running_difficulty)
-    print("loop finished")
+    curr_node = best_shot_node
+    while curr_node.parent is not None:
+        simulate_shot(curr_node.shot, space)
 
 
 if __name__ == "__main__":
