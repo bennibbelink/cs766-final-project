@@ -5,7 +5,7 @@ import pygame
 import math
 import queue
 import copy
- 
+from statistics import mean
 
 SHOT_ID_COUNTER = 0
 SOLIDS_TEAM_ID= 0
@@ -14,6 +14,8 @@ CUE_BALL_ID = 2
 POCKET_ID = 3
 WALL_ID = 4
 EIGHT_BALL_ID = 5
+SIZE_FACTOR = 10
+BALL_SIZE = 1.125 * SIZE_FACTOR
 
 
 best_running_difficulty = -1
@@ -110,7 +112,7 @@ def simulate_shot(shot: Shot, space: pymunk.Space):
 def create_ball_at_location(point, space, id):
     body = pymunk.Body()
     body.position = point[0], point[1]
-    shape = pymunk.Circle(body, 15)
+    shape = pymunk.Circle(body, BALL_SIZE)
     shape.mass = 1
     shape.id = id
     if id == 0:
@@ -152,12 +154,12 @@ def create_wall(points, space):
 
 
 # Create triggers that balls collide with that will delete them
-def create_pocket(top_left_corner: tuple, length, space):
-    shape = pymunk.Poly(space.static_body, [top_left_corner,
-        (top_left_corner[0], top_left_corner[1] + length),
-        (top_left_corner[0] + length, top_left_corner[1] + length), 
-        (top_left_corner[0] + length, top_left_corner[1])])
-    
+def create_pocket(points, space):
+    # shape = pymunk.Poly(space.static_body, [top_left_corner,
+    #     (top_left_corner[0], top_left_corner[1] + length),
+    #     (top_left_corner[0] + length, top_left_corner[1] + length), 
+    #     (top_left_corner[0] + length, top_left_corner[1])])
+    shape = pymunk.Segment(space.static_body, (points[0][0], points[0][1]), (points[1][0], points[1][1]), 1) 
     # DEBUG
     shape.color = (255, 0, 0, 255)
 
@@ -197,8 +199,8 @@ def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space, sh
                 new_shot_node.set_running_difficulty(shot.difficulty + new_shot_node.parent.running_difficulty)
                 if best_running_difficulty == -1 or new_shot_node.running_difficulty < best_running_difficulty:
                     valid_shot_nodes.append(new_shot_node)
-    # for node in valid_shot_nodes:
-    #     simulate_shot(node.shot, copy.deepcopy(space))
+    for node in valid_shot_nodes:
+        simulate_shot(node.shot, copy.deepcopy(space))
     return valid_shot_nodes
     
 # EVALUATE SINGLE SHOT
@@ -213,7 +215,9 @@ def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space, sh
 def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, shooting_team_id):
     balls_made = []
     legal = True
-    first_contact_made = False
+    current_ball_index = 0
+    num_collisions = 0
+    test = True #REMOVE ME
 
     def ball_in_pocket_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         balls_made.append(arbiter.shapes[0].id)
@@ -226,12 +230,27 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         legal = False
         return False
     
-    def wrong_ball_scratch_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
-        if not first_contact_made:
+    def first_ball_hit_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        nonlocal current_ball_index
+        if current_ball_index == 0:
             nonlocal legal
-            legal = False
-        return False
-        
+            if shooting_team_id != SOLIDS_TEAM_ID:
+                nonlocal legal
+                legal = False
+                return False
+            else: 
+                current_ball_index = arbiter.shapes[0].id #data
+                num_collisions = 1
+                return False # need to check this doc
+             
+    # def combo_ball_hit_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+    #     nonlocal current_ball_index
+    #     if arbiter.shapes[0].id == current_ball_index or arbiter.shapes[1].id == current_ball_index:
+    #         num_collisions += 1
+    #         return True
+    #     else:
+    #         return False
+    
     solids_pocket = space.add_collision_handler(SOLIDS_TEAM_ID, POCKET_ID)
     solids_pocket.begin = ball_in_pocket_handler
     stripes_pocket = space.add_collision_handler(STRIPES_TEAM_ID, POCKET_ID)
@@ -239,11 +258,18 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     scratch = space.add_collision_handler(CUE_BALL_ID, POCKET_ID)
     scratch.begin = scratch_handler
     cue_solids = space.add_collision_handler(CUE_BALL_ID, SOLIDS_TEAM_ID)
-    cue_stripes = space.add_collision_handler(CUE_BALL_ID, STRIPES_TEAM_ID)
-    if shooting_team_id == SOLIDS_TEAM_ID:
-        cue_stripes.begin = wrong_ball_scratch_handler
-    else:
-        cue_solids.begin = wrong_ball_scratch_handler
+    cue_solids.begin = first_ball_hit_handler
+    # combo_solids = space.add_collision_handler(SOLIDS_TEAM_ID, SOLIDS_TEAM_ID) #NEED TO ADD STRIPES
+    # combo_solids.begin = combo_ball_hit_handler
+    
+    
+    
+    #
+    # cue_stripes = space.add_collision_handler(CUE_BALL_ID, STRIPES_TEAM_ID)
+    # if shooting_team_id == SOLIDS_TEAM_ID:
+    #     cue_stripes.begin = first_ball_hit_handler
+    # else:
+    #     cue_solids.begin = first_ball_hit_handler
 
     x_force = strength * math.cos(angle * math.pi / 180)    
     y_force = strength * math.sin(angle * math.pi / 180)
@@ -282,11 +308,11 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     
 
 # GET SHOT DIFFICULTY
-# PARAMETERS: 
-# ASSUMES:
-# REQUIRES:
-def get_shot_difficulty(strength, collisions_involved):
-    return (strength / 1000) * collisions_involved
+# PARAMETERS: angle = 
+# ASSUMES: 
+# REQUIRES: 
+def get_shot_difficulty(cue_to_object, object_to_pocket, angle, collisions_involved):
+    return ( math.cos(angle * math.pi / 180) / cue_to_object * object_to_pocket ) * (1.5 * collisions_involved) # MAKE SURE ANGLE CALC IS CORRECT
 # ----------- SHOT EVALUTION -------------------------------------------
 
 
@@ -306,31 +332,108 @@ def main():
     space = pymunk.Space()
     space.gravity = 0, 0
     
+    #Calculate the table dimensions
+    table_width = 88
+    table_height = 44
+    
+
+    rail_wid = 2 * SIZE_FACTOR
+    sp_diff = .5 / 2 * SIZE_FACTOR
+    cp_mouth_len = 3.2 * SIZE_FACTOR
+    cp_throat_len = 2.9 * SIZE_FACTOR
+    sp_throat_wid = 4.5 * SIZE_FACTOR
+
+    start_x = 50
+    top_rail_out_y = 50
+    top_rail_in_y = 50 + rail_wid
+    bot_rail_in_y = top_rail_in_y + table_height * SIZE_FACTOR
+    bot_rail_out_y = bot_rail_in_y + rail_wid
+
+    top_wall_outlen = (((table_width * SIZE_FACTOR) + (2 * cp_throat_len) - (2 * rail_wid) - (sp_throat_wid)) / 2) 
+    side_wall_outlen = (table_height * SIZE_FACTOR) - (2 * cp_throat_len) + (2 * rail_wid)
+
+    w1_p1 = (start_x + cp_throat_len, top_rail_out_y)
+    w1_p2 = (w1_p1[0] + top_wall_outlen, top_rail_out_y)
+    w1_p3 = (w1_p2[0] - sp_diff, top_rail_in_y)
+    w1_p4 = (start_x + cp_mouth_len + rail_wid, top_rail_in_y)
+
+    w2_p1 = (w1_p2[0] + sp_throat_wid, top_rail_out_y)
+    w2_p2 = (w2_p1[0] + top_wall_outlen, top_rail_out_y)
+    w2_p3 = (w2_p2[0] + cp_throat_len - cp_mouth_len - rail_wid, top_rail_in_y)
+    w2_p4 = (w2_p1[0] + sp_diff, top_rail_in_y)
+
+    w3_p1 = (w2_p2[0] + cp_throat_len, top_rail_out_y + cp_throat_len)
+    w3_p2 = (w3_p1[0],  w3_p1[1] + side_wall_outlen)
+    w3_p3 = (w3_p1[0] - rail_wid, w3_p2[1] + cp_throat_len - cp_mouth_len - rail_wid)
+    w3_p4 = (w3_p3[0], w3_p1[1] - cp_throat_len + cp_mouth_len + rail_wid)
+
+    w4_p1 = (start_x, top_rail_out_y + cp_throat_len)
+    w4_p2 = (start_x, w4_p1[1] + side_wall_outlen)
+    w4_p3 = (w4_p1[0] + rail_wid, w4_p2[1] + cp_throat_len - cp_mouth_len - rail_wid)
+    w4_p4 = (w4_p3[0], w4_p1[1] - cp_throat_len +cp_mouth_len +rail_wid)
+
+    w5_p1 = (start_x + cp_throat_len, bot_rail_out_y)
+    w5_p2 = (w5_p1[0] + top_wall_outlen, bot_rail_out_y)
+    w5_p3 = (w5_p2[0] - sp_diff, bot_rail_in_y)
+    w5_p4 = (start_x + cp_mouth_len + rail_wid, bot_rail_in_y)
+
+    w6_p1 = (w5_p2[0] + sp_throat_wid, bot_rail_out_y)
+    w6_p2 = (w6_p1[0] + top_wall_outlen, bot_rail_out_y)
+    w6_p3 = (w6_p2[0] + cp_throat_len -cp_mouth_len - rail_wid, bot_rail_in_y)
+    w6_p4 = (w6_p1[0] + sp_diff, bot_rail_in_y)
+
+    # half of the ball size
+    hb = .5 * BALL_SIZE
+    h1 = (mean([w1_p1[0], w4_p1[0]]), mean([w1_p1[1], w4_p1[1]])) 
+    h2 = (mean([w1_p2[0], w2_p1[0]]), mean([w1_p2[1], w2_p1[1]]))
+    h3 = (mean([w2_p2[0], w3_p1[0]]), mean([w2_p2[1], w3_p1[1]]))
+    h4 = (mean([w6_p2[0], w3_p2[0]]), mean([w6_p2[1], w3_p2[1]]))
+    h5 = (mean([w5_p2[0], w6_p1[0]]), mean([w5_p2[1], w6_p1[1]]))
+    h6 = (mean([w4_p2[0], w5_p1[0]]), mean([w4_p2[1], w5_p1[1]]))
+    
+    h1_line = [(w4_p1[0]-hb, w4_p1[1]-hb), (w1_p1[0]-hb, w1_p1[1]-hb)]
+    h2_line = [(w1_p2[0], w1_p2[1]-hb), (w2_p1[0], w2_p1[1]-hb)]
+    h3_line = [(w2_p2[0]+hb, w2_p2[1]-hb), (w3_p1[0]+hb, w3_p1[1]-hb)]
+    h4_line = [(w6_p2[0]+hb, w6_p2[1]+hb), (w3_p2[0]+hb, w3_p2[1]+hb)]
+    h5_line = [(w5_p2[0], w5_p2[1]+hb), (w6_p1[0], w6_p1[1]+hb)]
+    h6_line = [(w4_p2[0]-hb, w4_p2[1]+hb), (w5_p1[0]-hb, w5_p1[1]+hb)]
     
     # WALLS ARE ASSUMED TO BE CREATED IN A CERTAIN ORDER, FOR POCKET GENERATION
     walls: List[pymunk.Shape] = []
-    walls.append(create_wall([(100, 50), (600, 50), (602, 40), (90, 40)], space))
-    walls.append(create_wall([(650, 50), (1150, 50), (1160, 40), (648, 40)], space))
-    walls.append(create_wall([(60, 90), (60, 590), (50, 600), (50, 80)], space))
-    walls.append(create_wall([(1190, 90), (1190, 590), (1200, 600), (1200, 80)], space))
-    walls.append(create_wall([(100, 630), (600, 630), (602, 640), (90, 640)], space))
-    walls.append(create_wall([(650, 630), (1150, 630), (1160, 640), (648, 640)], space))
+    walls.append(create_wall([w1_p1, w1_p2, w1_p3, w1_p4], space))
+    walls.append(create_wall([w2_p1, w2_p2, w2_p3, w2_p4], space))
+    walls.append(create_wall([w3_p1, w3_p2, w3_p3, w3_p4], space))
+    walls.append(create_wall([w4_p1, w4_p2, w4_p3, w4_p4], space))
+    walls.append(create_wall([w5_p1, w5_p2, w5_p3, w5_p4], space))
+    walls.append(create_wall([w6_p1, w6_p2, w6_p3, w6_p4], space))
+    # walls.append(create_wall([(100, 50), (600, 50), (602, 40), (90, 40)], space))
+    # walls.append(create_wall([(650, 50), (1150, 50), (1160, 40), (648, 40)], space))
+    # walls.append(create_wall([(60, 90), (60, 590), (50, 600), (50, 80)], space))
+    # walls.append(create_wall([(1190, 90), (1190, 590), (1200, 600), (1200, 80)], space))
+    # walls.append(create_wall([(100, 630), (600, 630), (602, 640), (90, 640)], space))
+    # walls.append(create_wall([(650, 630), (1150, 630), (1160, 640), (648, 640)], space))
 
     # Triggers for detecting balls entering pockets
     pockets: List[pymunk.Shape] = []
-    pockets.append(create_pocket((40, 40), 15, space))
-    pockets.append(create_pocket((1190, 40), 15, space))
-    pockets.append(create_pocket((615, 30), 15, space))
-    pockets.append(create_pocket((40, 640), 15, space))
-    pockets.append(create_pocket((615, 640), 15, space))
-    pockets.append(create_pocket((1190, 640), 15, space))
+    pockets.append(create_pocket(h1_line, space))
+    pockets.append(create_pocket(h2_line, space))
+    pockets.append(create_pocket(h3_line, space))
+    pockets.append(create_pocket(h4_line, space))
+    pockets.append(create_pocket(h5_line, space))
+    pockets.append(create_pocket(h6_line, space))
+    # pockets.append(create_pocket((40, 40), 15, space))
+    # pockets.append(create_pocket((1190, 40), 15, space))
+    # pockets.append(create_pocket((615, 30), 15, space))
+    # pockets.append(create_pocket((40, 640), 15, space))
+    # pockets.append(create_pocket((615, 640), 15, space))
+    # pockets.append(create_pocket((1190, 640), 15, space))
 
 
     # 2 balls, 1 cue ball on table (assume 2 balls are for the same team)
-    cue_ball = Ball(0, 0, (500, 500))
-    ball1 = Ball(1, 3, (1000, 100))
-    ball2 = Ball(1, 7, (70, 70))
-    ball3 = Ball(1, 11, (200, 500))
+    cue_ball = Ball(0, 0, (100, 500))
+    ball1 = Ball(SOLIDS_TEAM_ID, 3, (100, 100))
+    ball2 = Ball(SOLIDS_TEAM_ID, 7, (170, 170))
+    ball3 = Ball(STRIPES_TEAM_ID, 11, (200, 500))
 
     all_balls = [None] * 16
     all_balls[0] = cue_ball
