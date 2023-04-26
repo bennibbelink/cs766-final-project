@@ -5,7 +5,7 @@ import balls
 import numpy as np
 
 
-def get_balls():
+def get_balls(LL, UL, LR, UR):
     image_path = "./images/IMG_2737.png"
     color = cv2.imread(image_path, 1)
     masked_img = processing.mask_table(color)
