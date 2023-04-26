@@ -192,7 +192,7 @@ def create_pocket(points, space):
 # Return array of successful shots to search tree algorithm          
 def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space, shooting_team_id):
     angles = list(range(0, 360, 1))
-    strengths = list(range(200, 1201, 250))
+    strengths = list(range(100, 1201, 50))
     valid_shot_nodes = []
 
     for angle in angles:
@@ -281,6 +281,19 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         else:
             return True
     
+    def cue_bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        nonlocal num_collisions
+        if current_ball_index == 0: 
+            num_collisions += 1
+        return True
+    
+    def bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        nonlocal num_collisions
+        if arbiter.shapes[0].id == current_ball_index: 
+            num_collisions += 1
+        return True
+
+    
     solids_pocket = space.add_collision_handler(SOLIDS_TEAM_ID, POCKET_ID)
     solids_pocket.begin = ball_in_pocket_handler
     stripes_pocket = space.add_collision_handler(STRIPES_TEAM_ID, POCKET_ID)
@@ -293,8 +306,14 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     cue_stripes.begin = first_ball_hit_handler_stripes
     combo_solids = space.add_collision_handler(SOLIDS_TEAM_ID, SOLIDS_TEAM_ID) 
     combo_solids.begin = combo_ball_hit_handler
-    combo_solids = space.add_collision_handler(STRIPES_TEAM_ID, STRIPES_TEAM_ID) 
-    combo_solids.begin = combo_ball_hit_handler
+    combo_stripes = space.add_collision_handler(STRIPES_TEAM_ID, STRIPES_TEAM_ID) 
+    combo_stripes.begin = combo_ball_hit_handler
+    cue_bank = space.add_collision_handler(CUE_BALL_ID, WALL_ID) 
+    cue_bank.begin = cue_bank_handler
+    solids_bank = space.add_collision_handler(SOLIDS_TEAM_ID, WALL_ID)
+    solids_bank.begin = bank_handler
+    stripes_bank = space.add_collision_handler(STRIPES_TEAM_ID, WALL_ID) 
+    stripes_bank.begin = bank_handler
     
     
     x_force = strength * math.cos(angle * math.pi / 180)    
@@ -354,14 +373,21 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
 # ASSUMES: 
 # REQUIRES: 
 def get_shot_difficulty(cue_to_object, object_to_pocket, angle, collisions_involved):
+    
+    print("-- shot difficulty --")
     print(cue_to_object)
     print(object_to_pocket)
     print(angle)
     if angle > 90:
         angle = 180 - angle
         collisions_involved += 1
+
+    if collisions_involved == 1:
+        collision_factor = 1
+    else:
+        collision_factor = 1.75 * (collisions_involved - 1)
     print(collisions_involved)
-    difficulty = (math.cos(math.radians(angle)) / cue_to_object * object_to_pocket ) * (1.5 * collisions_involved) * 100
+    difficulty = (math.cos(math.radians(angle)) / cue_to_object * object_to_pocket ) * collision_factor * 100
     print(difficulty)
     return  difficulty 
 
