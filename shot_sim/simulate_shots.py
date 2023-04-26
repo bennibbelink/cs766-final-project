@@ -145,6 +145,7 @@ def create_wall(points, space):
         raise NotImplementedError
     elif len(points) == 4:
         shape = pymunk.Poly(space.static_body, [(points[0][0], points[0][1]), (points[1][0], points[1][1]), (points[2][0], points[2][1]), (points[3][0], points[3][1])])
+        shape.collision_type = WALL_ID
         shape.elasticity = 1
         shape.color = (255, 255, 255, 255)
         space.add(shape)
@@ -217,7 +218,6 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     legal = True
     current_ball_index = 0
     num_collisions = 0
-    test = True #REMOVE ME
 
     def ball_in_pocket_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         balls_made.append(arbiter.shapes[0].id)
@@ -230,26 +230,47 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         legal = False
         return False
     
-    def first_ball_hit_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+    def first_ball_hit_handler_solids(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         nonlocal current_ball_index
-        if current_ball_index == 0:
-            nonlocal legal
+        print(str(current_ball_index) + "(first)")
+        if current_ball_index == 0:       
             if shooting_team_id != SOLIDS_TEAM_ID:
                 nonlocal legal
                 legal = False
+                print(str(arbiter.shapes[1].id) + "(wrong team)")
                 return False
             else: 
-                current_ball_index = arbiter.shapes[0].id #data
+                current_ball_index = arbiter.shapes[1].id #data
                 num_collisions = 1
-                return False # need to check this doc
+                print(str(current_ball_index) + "(update first ball hit)")
+                return True # need to check this doc
+        return True
+    
+    def first_ball_hit_handler_stripes(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        nonlocal current_ball_index
+        print(str(current_ball_index) + "(first)")
+        if current_ball_index == 0:       
+            if shooting_team_id != STRIPES_TEAM_ID:
+                nonlocal legal
+                legal = False
+                print(str(arbiter.shapes[1].id) + "(wrong team)")
+                return False
+            else: 
+                current_ball_index = arbiter.shapes[1].id #data
+                num_collisions = 1
+                print(str(current_ball_index) + "(update first ball hit)")
+                return True # need to check this doc
+        return True
              
-    # def combo_ball_hit_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
-    #     nonlocal current_ball_index
-    #     if arbiter.shapes[0].id == current_ball_index or arbiter.shapes[1].id == current_ball_index:
-    #         num_collisions += 1
-    #         return True
-    #     else:
-    #         return False
+    def combo_ball_hit_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        nonlocal current_ball_index
+        nonlocal num_collisions
+        if arbiter.shapes[0].id == current_ball_index or arbiter.shapes[1].id == current_ball_index:
+            num_collisions += 1
+            print(num_collisions)
+            return True
+        else:
+            return True
     
     solids_pocket = space.add_collision_handler(SOLIDS_TEAM_ID, POCKET_ID)
     solids_pocket.begin = ball_in_pocket_handler
@@ -258,19 +279,15 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     scratch = space.add_collision_handler(CUE_BALL_ID, POCKET_ID)
     scratch.begin = scratch_handler
     cue_solids = space.add_collision_handler(CUE_BALL_ID, SOLIDS_TEAM_ID)
-    cue_solids.begin = first_ball_hit_handler
-    # combo_solids = space.add_collision_handler(SOLIDS_TEAM_ID, SOLIDS_TEAM_ID) #NEED TO ADD STRIPES
-    # combo_solids.begin = combo_ball_hit_handler
+    cue_solids.begin = first_ball_hit_handler_solids
+    cue_stripes = space.add_collision_handler(CUE_BALL_ID, STRIPES_TEAM_ID)
+    cue_stripes.begin = first_ball_hit_handler_stripes
+    combo_solids = space.add_collision_handler(SOLIDS_TEAM_ID, SOLIDS_TEAM_ID) 
+    combo_solids.begin = combo_ball_hit_handler
+    combo_solids = space.add_collision_handler(STRIPES_TEAM_ID, STRIPES_TEAM_ID) 
+    combo_solids.begin = combo_ball_hit_handler
     
     
-    
-    #
-    # cue_stripes = space.add_collision_handler(CUE_BALL_ID, STRIPES_TEAM_ID)
-    # if shooting_team_id == SOLIDS_TEAM_ID:
-    #     cue_stripes.begin = first_ball_hit_handler
-    # else:
-    #     cue_solids.begin = first_ball_hit_handler
-
     x_force = strength * math.cos(angle * math.pi / 180)    
     y_force = strength * math.sin(angle * math.pi / 180)
 
@@ -285,12 +302,16 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     for _ in range(1000):
         space.step(1/60) # These can be modified to sped up the time scale
     shot = None
-    if legal and len(balls_made) != 0:
-        print("Legal Shot:" + str(balls_made))
+    for ball in balls_made:
+        if (ball <= 7 and shooting_team_id != SOLIDS_TEAM_ID) or (ball > 7 and shooting_team_id != STRIPES_TEAM_ID):
+            legal = False
+
+    if legal and len(balls_made) != 0: 
         new_table = Table(table.balls[:])
         for ball in balls_made:
             new_table.balls[ball] = None
-        shot = Shot(table, new_table, angle, strength, strength)
+        shot = Shot(table, new_table, angle, strength, strength) #TO DO: NEED TO GET THE BEGINING AND ENDING LOCATION FOR THE MADE BALL
+        print("Legal Shot:" + str(balls_made) + str(shot.shot_id))
         if all(v is None for v in new_table.balls[1:8]):
             shot.end_table.game_won = True
             print("GAME WON")
@@ -299,7 +320,7 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         space.remove(joint)
 
     for body in space.bodies:
-        if body.body_type == pymunk.Body.DYNAMIC:
+        if body.body_type == pymunk.Body.DYNAMIC:  
             if legal and len(balls_made) != 0:
                 shot.end_table.balls[list(body.shapes)[0].id].loc = body.position
             space.remove(list(body.shapes)[0], body)
