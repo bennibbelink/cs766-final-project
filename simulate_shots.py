@@ -35,12 +35,13 @@ class Table:
         self.game_won = False
 
 class Shot: # only created after ball has been made
-    def __init__(self, initial_table: Table, end_table: Table, angle, strength, difficulty):
+    def __init__(self, initial_table: Table, end_table: Table, angle, strength, difficulty, num_collisions):
         self.angle = angle
         self.strength = strength
         self.difficulty = difficulty
         self.initial_table = copy.deepcopy(initial_table) # initial state (before shot is taken)
         self.end_table = copy.deepcopy(end_table) # initial state (before shot is taken)
+        self.num_collisions = num_collisions
 
         global SHOT_ID_COUNTER
         self.shot_id = SHOT_ID_COUNTER
@@ -64,6 +65,10 @@ def simulate_shot(shot: Shot, space: pymunk.Space):
     screen = pygame.display.set_mode((1300, 800))
     clock = pygame.time.Clock()
     draw_options = pymunk.pygame_util.DrawOptions(screen)
+    num_collisions = 0
+    current_ball_index = 0
+    legal = True
+    shooting_team_id = SOLIDS_TEAM_ID
 
     cue = create_ball_at_location(shot.initial_table.balls[0].loc, space, 0)
     for index, ball in enumerate(shot.initial_table.balls):
@@ -75,11 +80,44 @@ def simulate_shot(shot: Shot, space: pymunk.Space):
     def ball_in_pocket_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         space.remove(arbiter.shapes[0], arbiter.shapes[0].body, arbiter.shapes[0].pivot)
         return False
-        
+    
+    def cue_bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        nonlocal num_collisions
+        if current_ball_index == 0: 
+            num_collisions += 2 
+            print("number of collisions" +str(num_collisions))       
+        return True
+
+    def first_ball_hit_handler_solids(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        nonlocal current_ball_index
+        nonlocal num_collisions
+        # print(str(current_ball_index) + "(first)")
+        if current_ball_index == 0:       
+            if shooting_team_id != SOLIDS_TEAM_ID:
+                nonlocal legal
+                legal = False
+                # print(str(arbiter.shapes[1].id) + "(wrong team)")
+                return False
+            else: 
+                current_ball_index = arbiter.shapes[1].id #data
+                num_collisions = 1
+                # print(str(current_ball_index) + "(update first ball hit)")
+                return True 
+        if current_ball_index == arbiter.shapes[1].id:  #account for a double hit
+            legal = False
+            return False
+        return True
+    
+
     solids_pocket = space.add_collision_handler(SOLIDS_TEAM_ID, POCKET_ID)
     solids_pocket.begin = ball_in_pocket_handler
     stripes_pocket = space.add_collision_handler(STRIPES_TEAM_ID, POCKET_ID)
     stripes_pocket.begin = ball_in_pocket_handler
+    cue_bank = space.add_collision_handler(CUE_BALL_ID, WALL_ID) 
+    cue_bank.begin = cue_bank_handler
+    cue_solids = space.add_collision_handler(CUE_BALL_ID, SOLIDS_TEAM_ID)
+    cue_solids.begin = first_ball_hit_handler_solids
+    
 
     while running:
         
@@ -192,7 +230,7 @@ def create_pocket(points, space):
 # Return array of successful shots to search tree algorithm          
 def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space, shooting_team_id):
     angles = list(range(0, 360, 1))
-    strengths = list(range(100, 1201, 50))
+    strengths = list(range(100, 1201, 200))
     valid_shot_nodes = []
 
     for angle in angles:
@@ -206,6 +244,13 @@ def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space, sh
                     valid_shot_nodes.append(new_shot_node)
     # for node in valid_shot_nodes:
     #     simulate_shot(node.shot, copy.deepcopy(space))
+    #     print("shot stats")
+    #     print(node.shot.shot_id)
+    #     print(node.shot.difficulty)
+    #     print(node.running_difficulty)
+    #     print(node.shot.strength)
+    #     print(node.shot.angle)
+    #     print(node.shot.num_collisions)
     return valid_shot_nodes
     
 # EVALUATE SINGLE SHOT
@@ -228,7 +273,7 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     def ball_in_pocket_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         balls_made.append(arbiter.shapes[0].id)
         pocket_made_loc.append(arbiter.shapes[1].center_of_gravity)
-        print("Ball made: " + str(arbiter.shapes[0].id) + " -- " + str(arbiter.shapes[1].center_of_gravity))
+        # print("Ball made: " + str(arbiter.shapes[0].id) + " -- " + str(arbiter.shapes[1].center_of_gravity))
         space.remove(arbiter.shapes[0], arbiter.shapes[0].body, arbiter.shapes[0].pivot)
         return False
 
@@ -249,18 +294,21 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
                 return False
             else: 
                 current_ball_index = arbiter.shapes[1].id #data
-                num_collisions = 1
+                num_collisions +=1
                 # print(str(current_ball_index) + "(update first ball hit)")
                 return True 
+        if current_ball_index == arbiter.shapes[1].id:  #account for a double hit
+            legal = False
+            return False
         return True
     
     def first_ball_hit_handler_stripes(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         nonlocal current_ball_index
         nonlocal num_collisions
+        nonlocal legal
         # print(str(current_ball_index) + "(first)")
         if current_ball_index == 0:       
             if shooting_team_id != STRIPES_TEAM_ID:
-                nonlocal legal
                 legal = False
                 # print(str(arbiter.shapes[1].id) + "(wrong team)")
                 return False
@@ -268,7 +316,10 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
                 current_ball_index = arbiter.shapes[1].id #data
                 num_collisions = 1
                 # print(str(current_ball_index) + "(update first ball hit)")
-                return True # need to check this doc
+                return True 
+        if current_ball_index == arbiter.shapes[1].id:
+            legal = False
+            return False
         return True
              
     def combo_ball_hit_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
@@ -284,7 +335,7 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     def cue_bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         nonlocal num_collisions
         if current_ball_index == 0: 
-            num_collisions += 1
+            num_collisions += 1.5     
         return True
     
     def bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
@@ -347,14 +398,13 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
             dif_angle = math.degrees(math.acos(numpy.dot(v1, v2) / (obj_to_pock * cue_to_obj)))
             shot_difficulty += get_shot_difficulty(cue_to_obj / SIZE_FACTOR, obj_to_pock / SIZE_FACTOR, dif_angle, num_collisions)
             
-            # angle = math.acos(numpy.dot(v1, v2) / (obj_to_pock * cue_to_obj)) 
-            # print
             
-        shot = Shot(table, new_table, angle, strength, shot_difficulty) #TO DO: NEED TO GET THE BEGINING AND ENDING LOCATION FOR THE MADE BALL
-        print("Legal Shot:" + str(balls_made) + str(shot.shot_id))
+        shot = Shot(table, new_table, angle, strength, shot_difficulty, num_collisions) 
+        
+        # print("Legal Shot:" + str(balls_made) + str(shot.shot_id))
         if all(v is None for v in new_table.balls[1:8]):
             shot.end_table.game_won = True
-            print("GAME WON")
+            # print("GAME WON")
     
     for joint in space.constraints:
         space.remove(joint)
@@ -374,10 +424,10 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
 # REQUIRES: 
 def get_shot_difficulty(cue_to_object, object_to_pocket, angle, collisions_involved):
     
-    print("-- shot difficulty --")
-    print(cue_to_object)
-    print(object_to_pocket)
-    print(angle)
+    # print("-- shot difficulty --")
+    # print(cue_to_object)
+    # print(object_to_pocket)
+    # print(angle)
     if angle > 90:
         angle = 180 - angle
         collisions_involved += 1
@@ -385,7 +435,7 @@ def get_shot_difficulty(cue_to_object, object_to_pocket, angle, collisions_invol
     if collisions_involved == 1:
         collision_factor = 1
     else:
-        collision_factor = 1.75 * (collisions_involved - 1)
+        collision_factor = 2 * (collisions_involved - 1)
     print(collisions_involved)
     difficulty = (math.cos(math.radians(angle)) / cue_to_object * object_to_pocket ) * collision_factor * 100
     print(difficulty)
@@ -530,7 +580,7 @@ def main():
 
     table = Table(all_balls)
     shooting_team = SOLIDS_TEAM_ID
-    initial_shot = Shot(table, table, 0, 0, 0)
+    initial_shot = Shot(table, table, 0, 0, 0, 0)
     initial_shot.angle = 320
     initial_shot.strength = 1000
     # simulate_shot(initial_shot, space)
@@ -569,7 +619,7 @@ def main():
         
         for shot in shot_sequence:
             simulate_shot(shot, space.copy())
-
+        
 
 if __name__ == "__main__":
     main()
