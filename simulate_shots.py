@@ -7,6 +7,7 @@ import queue
 import copy
 import vision
 import numpy
+from collections import deque
 
 from statistics import mean
 
@@ -84,8 +85,8 @@ def simulate_shot(shot: Shot, space: pymunk.Space):
     def cue_bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         nonlocal num_collisions
         if current_ball_index == 0: 
-            num_collisions += 2 
-            print("number of collisions" +str(num_collisions))       
+            num_collisions += 1.5
+            # print("number of collisions" +str(num_collisions))       
         return True
 
     def first_ball_hit_handler_solids(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
@@ -282,6 +283,13 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         legal = False
         return False
     
+    def eight_ball_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data): 
+        nonlocal current_ball_index
+        nonlocal num_collisions
+        if current_ball_index == 0:
+            num_collisions += 8        # Temp Solution Need to address shot on the 8-ball
+        return True
+    
     def first_ball_hit_handler_solids(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         nonlocal current_ball_index
         nonlocal num_collisions
@@ -365,6 +373,8 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     solids_bank.begin = bank_handler
     stripes_bank = space.add_collision_handler(STRIPES_TEAM_ID, WALL_ID) 
     stripes_bank.begin = bank_handler
+    eight_ball = space.add_collision_handler(CUE_BALL_ID, EIGHT_BALL_ID)
+    eight_ball.begin = eight_ball_handler
     
     
     x_force = strength * math.cos(angle * math.pi / 180)    
@@ -436,9 +446,12 @@ def get_shot_difficulty(cue_to_object, object_to_pocket, angle, collisions_invol
         collision_factor = 1
     else:
         collision_factor = 2 * (collisions_involved - 1)
-    print(collisions_involved)
+    # print(collisions_involved)
+    # print(cue_to_object)
+    # print(object_to_pocket)
+    # print(angle)
     difficulty = (math.cos(math.radians(angle)) / cue_to_object * object_to_pocket ) * collision_factor * 100
-    print(difficulty)
+    # print(difficulty)
     return  difficulty 
 
 # ----------- SHOT EVALUTION -------------------------------------------
@@ -530,8 +543,6 @@ def main():
     ul = (ll[0], top_rail_in_y)
     lr = (w3_p3[0], bot_rail_in_y)
     ur = (lr[0], top_rail_in_y)
-    print(ll)
-    print(ul)
     
     # WALLS ARE ASSUMED TO BE CREATED IN A CERTAIN ORDER, FOR POCKET GENERATION
     walls: List[pymunk.Shape] = []
@@ -565,44 +576,43 @@ def main():
 
 
     # 2 balls, 1 cue ball on table (assume 2 balls are for the same team)
-    cue_ball = Ball(0, 0, (100, 500))
-    ball1 = Ball(SOLIDS_TEAM_ID, 3, (100, 100))
-    ball2 = Ball(SOLIDS_TEAM_ID, 7, (170, 170))
-    ball3 = Ball(STRIPES_TEAM_ID, 11, (200, 500))
+    # cue_ball = Ball(0, 0, (100, 500))
+    # ball1 = Ball(SOLIDS_TEAM_ID, 3, (100, 100))
+    # ball2 = Ball(SOLIDS_TEAM_ID, 7, (170, 170))
+    # ball3 = Ball(STRIPES_TEAM_ID, 11, (200, 500))
 
-    all_balls = [None] * 16
-    all_balls[0] = cue_ball
-    all_balls[3] = ball1
-    all_balls[7] = ball2
-    all_balls[11] = ball3
+    # all_balls = [None] * 16
+    # all_balls[0] = cue_ball
+    # all_balls[3] = ball1
+    # all_balls[7] = ball2
+    # all_balls[11] = ball3
 
-    # all_balls = vision.get_balls(ll, ul, lr, ur)
+    all_balls = vision.get_balls(ll, ul, lr, ur).tolist()
 
     table = Table(all_balls)
     shooting_team = SOLIDS_TEAM_ID
     initial_shot = Shot(table, table, 0, 0, 0, 0)
-    initial_shot.angle = 320
-    initial_shot.strength = 1000
-    # simulate_shot(initial_shot, space)
+    # initial_shot.angle = 320
+    # initial_shot.strength = 1000
     initial_shot_node = Node(initial_shot)
 
     # Evaluate 1 best shot
-    shot_node_queue = queue.Queue()
-    shot_node_queue.put(initial_shot_node)
+    shot_node_queue = deque()
+    shot_node_queue.append(initial_shot_node)
 
     # Evalute all remaining
     global best_running_difficulty
     best_shot_node = None
 
-    while shot_node_queue.empty() is False:
-        print("QUEUE SIZE: " + str(shot_node_queue.qsize()))
-        shot_node_to_eval = shot_node_queue.get()
+    while len(shot_node_queue) != 0:
+        print("QUEUE SIZE: " + str(len(shot_node_queue)))
+        shot_node_to_eval = shot_node_queue.pop()
         
         # Call eval shots
         optional_shot_nodes = evaluate_all_possible_shots(shot_node_to_eval, space.copy(), shooting_team)
         for node in optional_shot_nodes:
             if not node.shot.end_table.game_won:
-                shot_node_queue.put(node)
+                shot_node_queue.append(node)
             else:
                 if best_shot_node is None or best_shot_node.running_difficulty > node.running_difficulty:
                     best_shot_node = node
