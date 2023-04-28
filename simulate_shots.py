@@ -22,7 +22,7 @@ SIZE_FACTOR = 10
 BALL_SIZE = 1.125 * SIZE_FACTOR
 
 
-best_running_difficulty = -1
+best_running_difficulty = 1570
     
 class Ball:
     def __init__(self, team, label, loc):
@@ -109,7 +109,8 @@ def simulate_shot(shot: Shot, space: pymunk.Space):
             return False
         return True
     
-
+    eight_pocket = space.add_collision_handler(EIGHT_BALL_ID, POCKET_ID)
+    eight_pocket.begin = ball_in_pocket_handler
     solids_pocket = space.add_collision_handler(SOLIDS_TEAM_ID, POCKET_ID)
     solids_pocket.begin = ball_in_pocket_handler
     stripes_pocket = space.add_collision_handler(STRIPES_TEAM_ID, POCKET_ID)
@@ -231,7 +232,7 @@ def create_pocket(points, space):
 # Return array of successful shots to search tree algorithm          
 def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space, shooting_team_id):
     angles = list(range(0, 360, 1))
-    strengths = list(range(100, 1201, 200))
+    strengths = list(range(100, 1201, 300))
     valid_shot_nodes = []
 
     for angle in angles:
@@ -270,8 +271,22 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     current_ball_index = 0
     num_collisions = 0
     shot_difficulty = 0
+    shoot_at_eight = False
+    balls_left = 0
+
+    for v in table.balls[1:8]:
+        if v is not None:
+            balls_left +=1
+    
+    if balls_left == 7 or balls_left == 0:
+        shoot_at_eight = True
+        
 
     def ball_in_pocket_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        nonlocal legal
+        if arbiter.shapes[0].id == 8 and not shoot_at_eight:
+            legal = False
+            return False
         balls_made.append(arbiter.shapes[0].id)
         pocket_made_loc.append(arbiter.shapes[1].center_of_gravity)
         # print("Ball made: " + str(arbiter.shapes[0].id) + " -- " + str(arbiter.shapes[1].center_of_gravity))
@@ -286,9 +301,16 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     def eight_ball_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data): 
         nonlocal current_ball_index
         nonlocal num_collisions
-        if current_ball_index == 0:
-            num_collisions += 8        # Temp Solution Need to address shot on the 8-ball
-        return True
+        nonlocal legal
+
+        if current_ball_index == 0 and not shoot_at_eight:
+            legal = False
+            return False
+        elif current_ball_index == 0  and shoot_at_eight:
+            num_collisions += 1
+            return True
+        else:
+            return True
     
     def first_ball_hit_handler_solids(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         nonlocal current_ball_index
@@ -349,10 +371,11 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     def bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         nonlocal num_collisions
         if arbiter.shapes[0].id == current_ball_index: 
-            num_collisions += 1
+            num_collisions += 0
         return True
 
-    
+    eight_pocket = space.add_collision_handler(EIGHT_BALL_ID, POCKET_ID)
+    eight_pocket.begin = ball_in_pocket_handler
     solids_pocket = space.add_collision_handler(SOLIDS_TEAM_ID, POCKET_ID)
     solids_pocket.begin = ball_in_pocket_handler
     stripes_pocket = space.add_collision_handler(STRIPES_TEAM_ID, POCKET_ID)
@@ -392,8 +415,9 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         space.step(1/60) # These can be modified to sped up the time scale
     shot = None
     for ball in balls_made:
-        if (ball <= 7 and shooting_team_id != SOLIDS_TEAM_ID) or (ball > 7 and shooting_team_id != STRIPES_TEAM_ID):
+        if (ball <= 8 and shooting_team_id != SOLIDS_TEAM_ID) or (ball > 8 and shooting_team_id != STRIPES_TEAM_ID):
             legal = False
+        
 
     if legal and len(balls_made) != 0: 
         new_table = Table(table.balls[:])   
@@ -412,9 +436,11 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         shot = Shot(table, new_table, angle, strength, shot_difficulty, num_collisions) 
         
         # print("Legal Shot:" + str(balls_made) + str(shot.shot_id))
-        if all(v is None for v in new_table.balls[1:8]):
+        if all(v is None for v in new_table.balls[1:9]):
             shot.end_table.game_won = True
-            # print("GAME WON")
+            print("GAME WON")
+            print(best_running_difficulty)
+
     
     for joint in space.constraints:
         space.remove(joint)
@@ -576,15 +602,17 @@ def main():
 
 
     # 2 balls, 1 cue ball on table (assume 2 balls are for the same team)
-    # cue_ball = Ball(0, 0, (100, 500))
-    # ball1 = Ball(SOLIDS_TEAM_ID, 3, (100, 100))
-    # ball2 = Ball(SOLIDS_TEAM_ID, 7, (170, 170))
-    # ball3 = Ball(STRIPES_TEAM_ID, 11, (200, 500))
+    cue_ball = Ball(0, 0, (100, 500))
+    ball1 = Ball(SOLIDS_TEAM_ID, 3, (100, 100))
+    ball2 = Ball(SOLIDS_TEAM_ID, 7, (170, 170))
+    ball3 = Ball(STRIPES_TEAM_ID, 11, (200, 500))
+    eight_ball = Ball(EIGHT_BALL_ID, 8, (250, 250))
 
-    # all_balls = [None] * 16
+    all_balls = [None] * 16
     # all_balls[0] = cue_ball
     # all_balls[3] = ball1
     # all_balls[7] = ball2
+    # all_balls[8] = eight_ball
     # all_balls[11] = ball3
 
     all_balls = vision.get_balls(ll, ul, lr, ur).tolist()
