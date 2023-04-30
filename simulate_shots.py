@@ -8,6 +8,7 @@ import copy
 import vision
 import numpy
 from collections import deque
+import heapq
 
 from statistics import mean
 
@@ -22,7 +23,7 @@ SIZE_FACTOR = 10
 BALL_SIZE = 1.125 * SIZE_FACTOR
 
 
-best_running_difficulty = 1570
+best_running_difficulty = 995
     
 class Ball:
     def __init__(self, team, label, loc):
@@ -53,9 +54,23 @@ class Node:
         self.parent = None
         self.shot = copy.deepcopy(shot)
         self.running_difficulty = 0
+        self.level = 0
 
-    def set_running_difficulty(self, diff):
+    def set_running_difficulty(self, diff, level):
         self.running_difficulty = diff
+        self.level = level
+    
+    def __lt__(self, other):
+        return ((self.running_difficulty / self.level) - (self.level * 10)) < ((other.running_difficulty / other.level) - (other.level * 10))
+
+    def __le__(self, other):
+        return ((self.running_difficulty / self.level) - (self.level * 10)) <= ((other.running_difficulty / other.level) - (other.level * 10))
+
+    def __gt__(self, other):
+        return ((self.running_difficulty / self.level) - (self.level * 10))  > ((other.running_difficulty / other.level) - (other.level * 10))
+
+    def __ge__(self, other):
+        return ((self.running_difficulty / self.level) - (self.level * 10))  >= ((other.running_difficulty / other.level) - (other.level * 10))
 
 
 def simulate_shot(shot: Shot, space: pymunk.Space):
@@ -231,8 +246,13 @@ def create_pocket(points, space):
 #           Add to array of successful shots
 # Return array of successful shots to search tree algorithm          
 def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space, shooting_team_id):
-    angles = list(range(0, 360, 1))
-    strengths = list(range(100, 1201, 300))
+    #angles = [i/2 for i in range(0, 721)]
+    if current_shot_node.level >= 6:
+        angles = [i/4 for i in range(0, 1441)]
+        strengths = list(range(100, 1251, 150))
+    else:
+        angles = [i/2 for i in range(0, 721)]
+        strengths = list(range(100, 1251, 300))
     valid_shot_nodes = []
 
     for angle in angles:
@@ -241,7 +261,7 @@ def evaluate_all_possible_shots(current_shot_node: Node, space: pymunk.Space, sh
             if shot is not None:
                 new_shot_node = Node(shot)
                 new_shot_node.parent = current_shot_node
-                new_shot_node.set_running_difficulty(shot.difficulty + new_shot_node.parent.running_difficulty)
+                new_shot_node.set_running_difficulty(shot.difficulty + new_shot_node.parent.running_difficulty, new_shot_node.parent.level + 1)
                 if best_running_difficulty == -1 or new_shot_node.running_difficulty < best_running_difficulty:
                     valid_shot_nodes.append(new_shot_node)
     # for node in valid_shot_nodes:
@@ -274,11 +294,7 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     shoot_at_eight = False
     balls_left = 0
 
-    for v in table.balls[1:8]:
-        if v is not None:
-            balls_left +=1
-    
-    if balls_left == 7 or balls_left == 0:
+    if all(v is None for v in table.balls[1:8]):
         shoot_at_eight = True
         
 
@@ -307,7 +323,7 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
             legal = False
             return False
         elif current_ball_index == 0  and shoot_at_eight:
-            num_collisions += 1
+            num_collisions += 1 #might need to make more collisions
             return True
         else:
             return True
@@ -365,7 +381,10 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     def cue_bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         nonlocal num_collisions
         if current_ball_index == 0: 
-            num_collisions += 1.5     
+            if num_collisions == 0:
+                num_collisions += 1.5     
+            else:
+                num_collisions += 2.5
         return True
     
     def bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
@@ -438,8 +457,8 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         # print("Legal Shot:" + str(balls_made) + str(shot.shot_id))
         if all(v is None for v in new_table.balls[1:9]):
             shot.end_table.game_won = True
-            print("GAME WON")
-            print(best_running_difficulty)
+            # print("GAME WON" + )
+            # print(best_running_difficulty)
 
     
     for joint in space.constraints:
@@ -625,7 +644,7 @@ def main():
     initial_shot_node = Node(initial_shot)
 
     # Evaluate 1 best shot
-    shot_node_queue = deque()
+    shot_node_queue = []
     shot_node_queue.append(initial_shot_node)
 
     # Evalute all remaining
@@ -633,15 +652,23 @@ def main():
     best_shot_node = None
 
     while len(shot_node_queue) != 0:
-        print("QUEUE SIZE: " + str(len(shot_node_queue)))
-        shot_node_to_eval = shot_node_queue.pop()
+        shot_node_to_eval: Node = heapq.heappop(shot_node_queue)
+        print("QUEUE SIZE: " + str(len(shot_node_queue)) + "(level - " + str(shot_node_to_eval.level) + ") and score of: " + str(shot_node_to_eval.running_difficulty) + "::: " + str(shot_node_to_eval.shot.shot_id))
+
+        if shot_node_to_eval.running_difficulty > best_running_difficulty:
+            print("skip")
+            continue
+        elif shot_node_to_eval.level < 6 and shot_node_to_eval.running_difficulty > (best_running_difficulty - ((8 - shot_node_to_eval.level ) * 15)):
+            print("skip")
+            continue
         
         # Call eval shots
         optional_shot_nodes = evaluate_all_possible_shots(shot_node_to_eval, space.copy(), shooting_team)
         for node in optional_shot_nodes:
             if not node.shot.end_table.game_won:
-                shot_node_queue.append(node)
+                heapq.heappush(shot_node_queue, node)
             else:
+                print("GAME WON - Final Difficulty: " + str(node.running_difficulty) + " - " + str(node.parent.running_difficulty) + " - " + str(node.parent.parent.running_difficulty) + "(Best: " + str(best_running_difficulty))
                 if best_shot_node is None or best_shot_node.running_difficulty > node.running_difficulty:
                     best_shot_node = node
                     best_running_difficulty = node.running_difficulty
