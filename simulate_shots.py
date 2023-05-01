@@ -23,7 +23,7 @@ SIZE_FACTOR = 10
 BALL_SIZE = 1.125 * SIZE_FACTOR
 
 
-best_running_difficulty = 995
+best_running_difficulty = 735
     
 class Ball:
     def __init__(self, team, label, loc):
@@ -97,12 +97,6 @@ def simulate_shot(shot: Shot, space: pymunk.Space):
         space.remove(arbiter.shapes[0], arbiter.shapes[0].body, arbiter.shapes[0].pivot)
         return False
     
-    def cue_bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
-        nonlocal num_collisions
-        if current_ball_index == 0: 
-            num_collisions += 1.5
-            # print("number of collisions" +str(num_collisions))       
-        return True
 
     def first_ball_hit_handler_solids(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
         nonlocal current_ball_index
@@ -130,8 +124,6 @@ def simulate_shot(shot: Shot, space: pymunk.Space):
     solids_pocket.begin = ball_in_pocket_handler
     stripes_pocket = space.add_collision_handler(STRIPES_TEAM_ID, POCKET_ID)
     stripes_pocket.begin = ball_in_pocket_handler
-    cue_bank = space.add_collision_handler(CUE_BALL_ID, WALL_ID) 
-    cue_bank.begin = cue_bank_handler
     cue_solids = space.add_collision_handler(CUE_BALL_ID, SOLIDS_TEAM_ID)
     cue_solids.begin = first_ball_hit_handler_solids
     
@@ -293,6 +285,7 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     shot_difficulty = 0
     shoot_at_eight = False
     balls_left = 0
+    bank_dist = 0
 
     if all(v is None for v in table.balls[1:8]):
         shoot_at_eight = True
@@ -382,15 +375,16 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
         nonlocal num_collisions
         if current_ball_index == 0: 
             if num_collisions == 0:
-                num_collisions += 1.5     
+                num_collisions += 2    
             else:
                 num_collisions += 2.5
         return True
     
     def bank_handler(arbiter: pymunk.Arbiter, space: pymunk.Space, data):
+        nonlocal current_ball_index
         nonlocal num_collisions
-        if arbiter.shapes[0].id == current_ball_index: 
-            num_collisions += 0
+        if arbiter.shapes[0].id == current_ball_index or arbiter.shapes[1].id == current_ball_index:
+            num_collisions += 1.5
         return True
 
     eight_pocket = space.add_collision_handler(EIGHT_BALL_ID, POCKET_ID)
@@ -411,9 +405,9 @@ def evaluate_single_shot(space: pymunk.Space, strength, angle, table: Table, sho
     combo_stripes.begin = combo_ball_hit_handler
     cue_bank = space.add_collision_handler(CUE_BALL_ID, WALL_ID) 
     cue_bank.begin = cue_bank_handler
-    solids_bank = space.add_collision_handler(SOLIDS_TEAM_ID, WALL_ID)
+    solids_bank = space.add_collision_handler(SOLIDS_TEAM_ID, STRIPES_TEAM_ID)
     solids_bank.begin = bank_handler
-    stripes_bank = space.add_collision_handler(STRIPES_TEAM_ID, WALL_ID) 
+    stripes_bank = space.add_collision_handler(STRIPES_TEAM_ID, SOLIDS_TEAM_ID) 
     stripes_bank.begin = bank_handler
     eight_ball = space.add_collision_handler(CUE_BALL_ID, EIGHT_BALL_ID)
     eight_ball.begin = eight_ball_handler
@@ -490,7 +484,7 @@ def get_shot_difficulty(cue_to_object, object_to_pocket, angle, collisions_invol
     if collisions_involved == 1:
         collision_factor = 1
     else:
-        collision_factor = 2 * (collisions_involved - 1)
+        collision_factor = 3 * ((collisions_involved - 1) ** 2)
     # print(collisions_involved)
     # print(cue_to_object)
     # print(object_to_pocket)
@@ -643,13 +637,15 @@ def main():
     # initial_shot.strength = 1000
     initial_shot_node = Node(initial_shot)
 
+    simulate_shot(initial_shot, space.copy())
+
     # Evaluate 1 best shot
     shot_node_queue = []
     shot_node_queue.append(initial_shot_node)
 
     # Evalute all remaining
     global best_running_difficulty
-    best_shot_node = None
+    best_shot_node = []
 
     while len(shot_node_queue) != 0:
         shot_node_to_eval: Node = heapq.heappop(shot_node_queue)
@@ -669,21 +665,35 @@ def main():
                 heapq.heappush(shot_node_queue, node)
             else:
                 print("GAME WON - Final Difficulty: " + str(node.running_difficulty) + " - " + str(node.parent.running_difficulty) + " - " + str(node.parent.parent.running_difficulty) + "(Best: " + str(best_running_difficulty))
-                if best_shot_node is None or best_shot_node.running_difficulty > node.running_difficulty:
-                    best_shot_node = node
+                if best_running_difficulty >= node.running_difficulty:
+                    best_shot_node.append(node)
                     best_running_difficulty = node.running_difficulty
+                    print(node.running_difficulty)
+                    # curr_node = best_shot_node
+                    # shot_sequence = []
+                    # while curr_node.parent is not None:
+                    #     shot_sequence.insert(0, curr_node.shot)
+                    #     curr_node = curr_node.parent
+        
+                    # for shot in shot_sequence:
+                    #     simulate_shot(shot, space.copy())
+                    #     print(shot.difficulty)
+                    #     print(shot.num_collisions)
     if best_shot_node is None:
         print("No way to win game!")
     else:
-        print(best_shot_node.running_difficulty)
-        curr_node = best_shot_node
-        shot_sequence = []
-        while curr_node.parent is not None:
-            shot_sequence.insert(0, curr_node.shot)
-            curr_node = curr_node.parent
-        
-        for shot in shot_sequence:
-            simulate_shot(shot, space.copy())
+        for shot in best_shot_node:
+            print(shot.running_difficulty)
+            curr_node = shot
+            shot_sequence = []
+            while curr_node.parent is not None:
+                shot_sequence.insert(0, curr_node.shot)
+                curr_node = curr_node.parent
+            
+            for shot in shot_sequence:
+                simulate_shot(shot, space.copy())
+                print(shot.difficulty)
+                print(shot.num_collisions)
         
 
 if __name__ == "__main__":
