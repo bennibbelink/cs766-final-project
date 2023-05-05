@@ -180,7 +180,7 @@
 						<h3>Ball Labeling</h3>
 						<p>The process for ball labeling was as follows: <br/>
 							1. Use a bounding circle for each ball found <br/>
-							2. Apply a 3D historgram of the pixel values in the bounding circle <br/>
+							2. Apply a 3D histogram of the pixel values in the bounding circle <br/>
 							Here are the results: <br/>
 
 						</p>
@@ -201,11 +201,11 @@
 							of everything in pixels, including the balls, pocket mouths, throats, rail widths, and the table area.
 							After that, we apply a homography from the input image into the game table, using the corner pockets as
 							key points so that balls can be easily positioned. Here is a side by side of an image of the ball identification on the table,
-							as weell as the simluated table.
+							as well as the simulated table.
 						</p>
 
 						<h3>Simulating Gameplay</h3>
-						<p>For simulated gameplay, the codebase mainly relied on pymunk and pygame libraries to run both physics simulations,
+						<p>For simulated gameplay, the codebase mainly relied on pymunk and pygame libraries to run physics simulations
 							and show us the results of these physics simulations. We used a branch and bound methodology to find the best shot sequence,
 							bounded by a predefined "shot difficulty". Over the various strenghts and angles that we tested, there were around 2,750 to 11,500 simulations
 							run per turn, with around 2,500+ turns evaluated. If the shot was legal and easy enough (defined by our shot difficulty), we add the resulting
@@ -264,9 +264,10 @@
 
 						<h3>Vision</h3>
 						<p>In the vision aspect, we found that our limitations were mostly due to image quality and associated lighting.
-							Shadows that the balls and the walls produce impact our vision system greatly, which casued many of our hough transform
-							attempts to be unsuccessful. As a result, we had to do quite a bit of optimization specific to the input image. Addionally, we could optimize
-							our ball identification with a CNN.
+							Shadows that the balls and the walls produce impact our vision system greatly, which caused many of our hough transform
+							attempts to be unsuccessful. As a result, we had to do quite a bit of optimization specific to the input image. Future work could
+							include calculating some margin of error for each ball identification/labeling, perhaps by analyzing the variance of each cluster's 
+							centers.  Addionally, we could optimize our ball identification with a CNN.
 						</p>
 
 					</div>
