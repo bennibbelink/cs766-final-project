@@ -28,7 +28,7 @@
 						<nav id="nav">
 							<ul>
 								<li><a href="#top" id="top-link"><span class="icon solid fa-home">Intro</span></a></li>
-								<li><a href="#motivation" id="motivation-link"><span class="icon solid fa-th">Motivation</span></a></li>
+								<li><a href="#motivation" id="motivation-link"><span class="icon solid fa-user">Motivation</span></a></li>
 								<li><a href="#approach" id="approach-link"><span class="icon solid fa-user">Approach</span></a></li>
 								<li><a href="#implementation-vis" id="implementation-vis-link"><span class="icon solid fa-user">Implementation - Vision</span></a></li>
 								<li><a href="#implementation-sim" id="implementation-sim-link"><span class="icon solid fa-user">Implementation - Simulation</span></a></li>
@@ -129,9 +129,6 @@
 							<header>
 								<h2>Approach</h2>
 							</header>
-
-							<a href="#" class="image featured"><img src="web_images/pic08.jpg" alt="" /></a>
-
 							<p>Our approach revolved around 5 key components</p>
 								1. Identify Table Layout from an Image</br>
 								2. Identify Balls on Table from the Same Image</br>
@@ -150,15 +147,44 @@
 							<h2>Implementation - Vision</h2>
 						</header>
 
-						<a href="#" class="image featured"><img src="web_images/pic08.jpg" alt="" /></a>
+						<h3>Table Layout</h3>
+						<p>Our first approach to identifying the table layout involved attempting to use Hough Lines
+						to identify the walls of the table. Here are the results of that attempt.</p>
+						<img src="web_images/tablelines1.png" alt="" />
+						<img src="web_images/tablelines2.png" alt="" />
+						<p>As you can see, the shadows in our images made the wall detectiong difficult to do,
+						even with various attempts at parameter tuning. Because of this we, decided to go with an
+						alternative approach. The process was: <br/>
+						1. Mask the image using a histogram (and some morphological processing) to extract mainly just the pool table <br/>
+						2. Apply a circle Hough transform to find circles the size of pockets </br>
+						3. Find clusters of circles and take the top 4, these are the corner pockets </br>
+						4. Find the centroid of each cluster and this is what we use as the corner </br>
+						Here are the results of that implementation. </p>
+						<img src="web_images/pockets.png" width="500" alt=""/>
+						<img src="web_images/pockets2.png" width="500" alt="" />
+						<p>Once again, the results are not perfect, but much better than what we saw with the hough lines.</p>
 
-						<p>Tincidunt eu elit diam magnis pretium accumsan etiam id urna. Ridiculus
-						ultricies curae quis et rhoncus velit. Lobortis elementum aliquet nec vitae
-						laoreet eget cubilia quam non etiam odio tincidunt montes. Elementum sem
-						parturient nulla quam placerat viverra mauris non cum elit tempus ullamcorper
-						dolor. Libero rutrum ut lacinia donec curae mus vel quisque sociis nec
-						ornare iaculis.</p>
+						<h3>Ball Identification</h3>
 
+						<p>The process for ball identification was as follows: <br/>
+							1. Apply a circle Hough Transform to find circles the size of balls <br/>
+							2. Apply a similar clustering technique. <br/>
+							3. Find the centroid of each cluster <br/>
+							<br/>
+							However, we once again encountered a few issues with this method, which we will discuss later.
+							Here are the results from this approach.
+						</p>
+						<img src="web_images/balls1.png" width="500" alt="" />
+						<img src="web_images/balls2.png" width="500" alt="" />
+
+						<h3>Ball Labeling</h3>
+						<p>The process for ball labeling was as follows: <br/>
+							1. Use a bounding circle for each ball found <br/>
+							2. Apply a 3D historgram of the pixel values in the bounding circle <br/>
+							Here are the results: <br/>
+
+						</p>
+						<img src="web_images/balls3.png" alt="" />
 					</div>
 				</section>
 
@@ -170,15 +196,32 @@
 							<h2>Implementation - Simluation</h2>
 						</header>
 
-						<a href="#" class="image featured"><img src="web_images/pic08.jpg" alt="" /></a>
+						<h3>Creating the Game Table</h3>
+						<p>For creating the actual game table, we used actual table size measurements to get the relative size
+							of everything in pixels, including the balls, pocket mouths, throats, rail widths, and the table area.
+							After that, we apply a homography from the input image into the game table, using the corner pockets as
+							key points so that balls can be easily positioned. Here is a side by side of an image of the ball identification on the table,
+							as weell as the simluated table.
+						</p>
 
-						<p>Tincidunt eu elit diam magnis pretium accumsan etiam id urna. Ridiculus
-						ultricies curae quis et rhoncus velit. Lobortis elementum aliquet nec vitae
-						laoreet eget cubilia quam non etiam odio tincidunt montes. Elementum sem
-						parturient nulla quam placerat viverra mauris non cum elit tempus ullamcorper
-						dolor. Libero rutrum ut lacinia donec curae mus vel quisque sociis nec
-						ornare iaculis.</p>
+						<h3>Simulating Gameplay</h3>
+						<p>For simulated gameplay, the codebase mainly relied on pymunk and pygame libraries to run both physics simulations,
+							and show us the results of these physics simulations. We used a branch and bound methodology to find the best shot sequence,
+							bounded by a predefined "shot difficulty". Over the various strenghts and angles that we tested, there were around 2,750 to 11,500 simulations
+							run per turn, with around 2,500+ turns evaluated. If the shot was legal and easy enough (defined by our shot difficulty), we add the resulting
+							table state to a min heap and continue our search. We end once the heap was empty, and choose the sequence with the lowest overall difficulty.
+						</p>
+						<img src="web_images/simtable.png" alt="" />
 
+						<h3>Shot Diffulty</h3>
+						<img src="web_images/diff.png" alt="" />
+						<p>Our difficulty measure was defined as: <br/>
+							Diff = cos(a) / ( Vco * Vop) * Collision Factor <br/>
+							Vco:  distance from cue to object <br/>
+							Vop: distance from object to pocket <br/>
+							**Note**:Collision factor is to account for increased difficulty of bank and combo shots
+
+						</p>
 					</div>
 				</section>
 
@@ -191,12 +234,6 @@
 						</header>
 
 						<p>We found pretty successful results for both the table ball identification, and the shot simulation.</p>
-						<p>Here is a result of the Table Identification</p>
-						<img src="TABLE IMAGE WITH SHOWN BALLS">
-
-						<p>Here is a result of the Ball Identification</p>
-						<img src="TABLE IMAGE WITH SHOWN BALLS">
-
 						<p>Here is a result of the Shot Simulation for the Detected Balls and Table</p>
 						<iframe width="420" height="315" src="https://www.youtube.com/embed/dhwthwrgt">
 					</iframe>
@@ -211,11 +248,25 @@
 						<header>
 							<h2>Discussion</h2>
 						</header>
+						<p>We encountered several difficulties througout the project, here is a discussion of a few of them.
+						</p>
+						<h3>Shot Evaluation</h3>
+						<p>In terms of the shot evaluation, the main things that we thought were left unfinished were the speed
+							of the search and the difficulty measurements. Because of the millions of table states created and evaluted,
+							even with our branch and bound methodology, the process was still quite slow. This was OK in our case since we had enough time
+							and compute power, but it would be interesting to see if our process could be run in real time to be much more useful to players
+							in the moment. Some ideas that we came up with were to random sample shots instead of evaluation all shots, and to add some type of
+							prioritization in our search tree. For our difficulty measure, we found that it worked fine in our case, but left out some key
+							components that would translate to the real world. Particularly, combo and bank shots aren't really accounted for
+							in our difficulty measure. Lastly, we are making a pretty large assumption that there is no rotational energy in our system. It
+							would be interesting to include this, but would likely vastly increase our simulation time. 
+						</p>
 
-						<a href="#" class="image featured"><img src="web_images/pic08.jpg" alt="" /></a>
-
-						<p>We encountered several difficulties througout the project, particularly with the identification
-							of the balls and the table. We were mainly limited 
+						<h3>Vision</h3>
+						<p>In the vision aspect, we found that our limitations were mostly due to image quality and associated lighting.
+							Shadows that the balls and the walls produce impact our vision system greatly, which casued many of our hough transform
+							attempts to be unsuccessful. As a result, we had to do quite a bit of optimization specific to the input image. Addionally, we could optimize
+							our ball identification with a CNN.
 						</p>
 
 					</div>
