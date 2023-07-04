@@ -1,6 +1,7 @@
 # cs766-final-project
 Final project for CS 766 Computer Vision
 
+[Summary page](https://bennibbelink.github.io/cs766-final-project/)
 
 ## Assumptions
 - all balls are on the table (16 total)
